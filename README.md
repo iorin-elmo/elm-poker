@@ -1,1 +1,2 @@
-# iorin-elmo.github.io
+# iorin-elmo
+# to study elm and html
