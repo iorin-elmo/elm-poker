@@ -1,5 +1,5 @@
 # iorin-elmo
-Elm implementation of poker game created by Iori Kodama and Yuya Aizawa
+Elm inplementation of poker game created by Iori Kodama and Yuya Aizawa
 
 ## How to make
 ``` sh

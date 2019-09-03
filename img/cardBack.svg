@@ -1,0 +1,9 @@
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 84 119">
+	<radialGradient gradientUnits="objectBoundingBox" id="backgrad" spreadMethod="pad">
+		<stop offset="20%" stop-color="black"/>
+		<stop offset="90%" stop-color="blue"/>
+	</radialGradient>
+	<rect x="0" y="0" width="84" height="119" rx="8" ry="8" stroke="black" fill="white"/>
+	<rect x="3" y="3" width="78" height="113" rx="5" ry="5" stroke="black" fill="url(#backgrad)"/>
+</svg>

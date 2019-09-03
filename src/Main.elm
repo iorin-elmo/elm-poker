@@ -1,8 +1,8 @@
 module Main exposing (main)
 
 import Browser
-import Html exposing (Html, button, div, text, input, br)
-import Html.Attributes exposing(type_, checked)
+import Html exposing (Html, button, div, text, input, br, img)
+import Html.Attributes exposing(type_, checked, class, src)
 import Html.Events exposing (onClick)
 import List.Extra exposing (updateAt,zip)
 import Random
@@ -20,11 +20,11 @@ type Suit
 suitToString : Suit -> String
 suitToString suit =
     case suit of
-        Spade -> "♠︎"
-        Heart -> "♡"
-        Diamond -> "♢"
-        Club -> "♣︎"
-        
+        Spade   -> "♠︎"
+        Heart   -> "♥"
+        Diamond -> "♦"
+        Club    -> "♣︎"
+
 type Role
     = RoyalFlush
     | StraightFlush
@@ -38,8 +38,8 @@ type Role
     | None
 
 toOdds : Role -> Int
-toOdds n =
-    case n of
+toOdds role =
+    case role of
         RoyalFlush    -> 100
         StraightFlush -> 50
         FourCard      -> 20
@@ -50,132 +50,175 @@ toOdds n =
         Pair2         -> 2
         Pair1         -> 1
         None          -> 0
-        
-type alias Card = ( Suit, Int)
+
+roleToString role =
+    case role of
+        RoyalFlush    -> "RoyalFlush !!"
+        StraightFlush -> "StraightFlush"
+        FourCard      -> "4 Card"
+        FullHouse     -> "FullHouse"
+        Flush         -> "Flush"
+        Straight      -> "Straight"
+        ThreeCard     -> "3 Cards"
+        Pair2         -> "2 Pairs"
+        Pair1         -> "1 Pair"
+        None          -> "None"
+
+type alias Card = ( Suit, Int )
+
+type Phase
+    = BetPhase
+    | SelectPhase (List Bool) -- trash
+    | ResultPhase
+    | GameOver
+    | InvalidState
+
 type alias Model =
-    { deck : List Card
+    { phase : Phase
+    , deck : List Card
     , hand : List Card
-    , select : List Bool
-    , coin : (Int, Int)
-    , finishCheck : Bool
-    , wave : Int
+    , money : Int
+    , bet : Int
+    , deckWave : Int
     }
 
 numberToString : Int -> String
 numberToString n =
-    case n of 
-        14 -> "A"
+    case n of
+        1 -> "A"
         11 -> "J"
         12 -> "Q"
         13 -> "K"
-        m -> String.fromInt m
-        
+        _  -> String.fromInt n
+
+refreshDeck = Random.generate Refresh (shuffle initialDeck)
+
 init () =
-    ( initialModel, Random.generate Refresh (shuffle initialDeck) )
+    ( initialModel, refreshDeck )
 
 initialModel : Model
 initialModel =
-    { deck = initialDeck
+    { phase = BetPhase
+    , deck = initialDeck
     , hand = []
-    , select = List.repeat 5 False
-    , coin = (10,0) 
-    , finishCheck = False
-    , wave = 1
+    , money = 10
+    , bet = 1
+    , deckWave = 1
     }
 
 initialDeck : List Card
 initialDeck =
-    cross [Spade, Heart, Diamond, Club] (List.range 2 14)
+    cross [Spade, Heart, Diamond, Club] (List.range 1 13)
 
 
 
 -- UPDATE --
 
 type Msg
-    = Draw
-    | Refresh (List Card)
+    = Refresh (List Card)
     | Check Int
     | Trash
-    | Finish Int
+    | Finish
     | Continue
     | Bet Int
+    | Decide
 
 
 update : Msg -> Model -> (Model ,Cmd Msg)
 update msg model =
-    let
-        newModel = 
-            case msg of
-                --Draw -> { model | deck = List.drop 1 model.deck }
-                Draw -> { model | hand = [ (Spade,14), (Spade,13), (Spade,12), (Spade,11), (Spade,10) ] }
-                Refresh deck -> { model | deck = List.drop 5 deck, hand = List.take 5 deck, coin = ((Tuple.first model.coin)-1,1), finishCheck = False}
-                Check n -> { model | select = updateAt n not model.select}
-                Trash -> 
-                    let
-                        trashedHand : List Card
-                        trashedHand = zip model.hand model.select
-                            |> List.filter (Tuple.second >> not)
-                            |> List.map Tuple.first
-                        refreshHand = List.append trashedHand 
-                            <|List.take (5-List.length trashedHand) model.deck
-                    in
-                        { model | select = List.repeat 5 False, hand = refreshHand, deck = List.drop (5-List.length trashedHand) model.deck, finishCheck = True}
-       
-                Finish n ->
-                    case  n of
-                        3 ->
-                            { model | coin = ((toOdds <| evaluateRole <| model.hand)*(Tuple.second model.coin)+(Tuple.first model.coin),1), finishCheck = False, wave=1}
-                        _ ->
-                            { model | deck = List.drop 5 model.deck, hand = List.take 5 model.deck, coin = ((toOdds <| evaluateRole <| model.hand)*(Tuple.second model.coin)+(Tuple.first model.coin)-1,1), finishCheck = False, wave = model.wave +1 }
-                            
-                Continue -> { model | coin = (10,0), select = List.repeat 5 False, wave =1 }
-                Bet n-> { model | coin = ((Tuple.first model.coin)-n,(Tuple.second model.coin)+n)}
-    
-        cmd = 
-            case msg of
-                Finish wave ->
-                    case wave of
-                        3 -> Random.generate Refresh (shuffle initialDeck)
-                        _ -> Cmd.none
-                Continue -> Random.generate Refresh (shuffle initialDeck)
-                _ -> Cmd.none
-    in
-        ( newModel, cmd )
-        
+    case (model.phase, msg) of
+        ( BetPhase, Bet n ) ->
+            ( { model | bet = model.bet + n }
+            , Cmd.none
+            )
+        ( BetPhase, Decide ) ->
+            ( { model | phase = SelectPhase <| List.repeat 5 False, money = model.money - model.bet }
+            , Cmd.none
+            )
+
+        ( SelectPhase select, Check n ) ->
+            ( { model | phase = SelectPhase <| updateAt n not select }
+            , Cmd.none
+            )
+        ( SelectPhase select, Trash ) ->
+            let
+                trashedHand : List Card
+                trashedHand = zip model.hand select
+                    |> List.filter (Tuple.second >> not)
+                    |> List.map Tuple.first
+                refreshHand =
+                    trashedHand ++ List.take (5 - List.length trashedHand) model.deck
+                newDeck = List.drop (5-List.length trashedHand) model.deck
+            in
+                ( { model | phase = ResultPhase, hand = refreshHand, deck = newDeck }
+                , Cmd.none
+                )
+
+        ( ResultPhase, Finish ) ->
+            let
+                newMoney = (toOdds <| evaluateRole <| model.hand) * model.bet + model.money
+                newHand = List.take 5 model.deck
+                newDeck = List.drop 5 model.deck
+                nextPhase =
+                    if newMoney > 0
+                    then BetPhase
+                    else GameOver
+                refreshIfNeed =
+                    if model.deckWave == 3
+                    then refreshDeck
+                    else Cmd.none
+            in
+                ( { model | phase = nextPhase, deck = newDeck, hand = newHand, money = newMoney, bet = 1, deckWave = model.deckWave + 1 }
+                , refreshIfNeed )
+
+        ( GameOver, Continue ) ->
+            ( initialModel
+            , refreshDeck
+            )
+
+        ( _, Refresh deck ) ->
+            ( { model | deck = List.drop 5 deck, hand = List.take 5 deck, deckWave = 1 }
+            , Cmd.none
+            )
+
+        _ ->
+            ( { model | phase = InvalidState }, Cmd.none )
+
 
 evaluateRole : List Card -> Role
 evaluateRole hand =
     let
-        handToInt = Tuple.second <| List.unzip <|  List.sortBy Tuple.second <| hand
+        handToInt = List.reverse <| Tuple.second <| List.unzip <|  List.sortBy Tuple.second <| hand
         difference = handToInt
-            |> List.map ((-)(Maybe.withDefault 0 (List.head handToInt)))
-            |> List.map ((+)14)
-        
-        result = toBag <|
-            Tuple.second (List.unzip hand)
-            
-        sortedNumber = List.sort <| Tuple.second <| List.unzip result
-        
-        suitToBag = toBag <| Tuple.first <| List.unzip <| hand
+            |> List.map (\n -> n - (Maybe.withDefault 0 (List.head handToInt)))
+            |> List.map ((+)13)
 
-        isFlush = (suitToBag |> List.length)==1
-                
+        isFlush = (hand |> List.unzip |> Tuple.first |> toBag |> List.length)==1
+
         isStraight =
-            case difference of
-                [14,13,12,11,10] -> True
-                [14,13,12,11,2]  -> True
-                _ -> False
-                      
-        isMin10 = (Maybe.withDefault 0 (List.head handToInt))==10
+            difference == [13,12,11,10,9]
+            || difference == [13,12,11,10,1] -- Ace high
+
+        aceHigh = difference == [13,12,11,10,1]
+
+        sortedHandNumbers =
+            hand
+                |> List.unzip
+                |> Tuple.second
+                |> toBag
+                |> List.unzip
+                |> Tuple.second
+                |> List.sort
+
     in
-        case sortedNumber of
-            [1,1,1,1,1] -> 
+        case sortedHandNumbers of
+            [1,1,1,1,1] ->
                 case (isFlush,isStraight) of
-                    (True,True)  -> if isMin10 then RoyalFlush else StraightFlush
-                    (True,False) -> Flush
-                    (False,True) -> Straight
-                    (_,_)        -> None
-                    
+                    (True , True ) -> if aceHigh then RoyalFlush else StraightFlush
+                    (True , False) -> Flush
+                    (False, True ) -> Straight
+                    (False, False) -> None
+
             [1,1,1,2] -> Pair1
             [1,2,2]   -> Pair2
             [1,1,3]   -> ThreeCard
@@ -186,131 +229,116 @@ evaluateRole hand =
 
 
 -- VIEW --
-        
-view : Model -> Html Msg
-view model = 
-    let 
-        top = case model.deck of
-            [] -> text <| "error"
-            card :: _ ->viewCard card
-        allHand = List.map viewCard  model.hand
-        selectInput n c = input[type_ "checkbox",onClick <| Check n,checked c][]
-        allSelects = model.select
-            |> List.indexedMap selectInput
-            
-        roleText = case model.hand |> evaluateRole of
-            RoyalFlush -> "RoyalFlush !!"
-            StraightFlush->"StraightFlush"
-            FourCard  -> "4 Card"
-            FullHouse -> "FullHouse"
-            Flush -> "Flush"
-            Straight -> "Straight"
-            ThreeCard -> "3 Card"
-            Pair2 -> "2 Pairs"
-            Pair1 -> "1 Pair"
-            None  -> "None"
-        
-        betButton =
-            let
-                logCoin = Basics.floor <| Basics.logBase 10 (Basics.toFloat <| Tuple.first <| model.coin)
-                addButton n = 
-                     button[onClick <| Bet <| 10^n]
-                        [text 
-                            <| String.append "+"
-                            <| String.append (String.fromInt <| (10^n))
-                            "00"
-                        ]
-                    
-            in
-                if model.finishCheck |> not then
-                    if (Tuple.first <| model.coin) == 0 then 
-                        []
-                    else
-                        List.append 
-                            (List.map addButton (List.range 0 logCoin))
-                            [button[onClick <| Bet <| Tuple.first <| model.coin][text  "Bet All"]]
-                else
-                    []
-                
-        changeButton : Bool -> List (Html Msg)
-        changeButton n=
-            if n then
-                [button[onClick <| Finish model.wave][text "click to next"]]
-            else
-                [button[onClick <| Trash][text "trash"]]
-                
-        odds = toOdds<|evaluateRole<|model.hand
-        
-        win = (Tuple.second model.coin)*(odds)
-                
-        betText = 
-            if model.finishCheck then
-                if (win /= 0) then
-                    [text <| String.append "Win  : " 
-                        <| String.append (String.fromInt<|Tuple.second<|model.coin)
-                        <| String.append "00*"
-                        <| String.append (String.fromInt odds)
-                        <| String.append "="
-                        <| String.append (String.fromInt win)
-                        "00"
-                    ]
-                else
-                    [text <| String.append "Lose : " 
-                        <| String.append (String.fromInt<|Tuple.second<|model.coin)
-                        "00*0=0"
-                    ]
-            else
-                [text <| String.append "Bet  : " 
-                    <| String.append (String.fromInt<|Tuple.second<|model.coin)
-                    "00"
-                ]
-                
-        coinString = 
-            if (((model.coin |> Tuple.first) == 0) |> not) then
-                String.append "Coin : " 
-                    <| String.append (String.fromInt<|Tuple.first <|model.coin)
-                    "00"
-            else 
-                "Coin : 0"
-                
-        waveString = 
-            [text 
-                <| String.append "Wave : "
-                <| String.append (String.fromInt model.wave)
-                <| String.append " / 3, Deck : "
-                (String.fromInt <| List.length <| model.deck)
-            ]
-                
-            
-    in 
-        if (model.coin |> Tuple.first) >= 0 then
-            div[]
-                <| List.append waveString
-                <| List.append [br[][]]
-                <| List.append allHand 
-                <| List.append [br[][]]
-                <| List.append allSelects
-                <| List.append [br[][]]
-                <| List.append [text <| "Role : "++roleText]
-                <| List.append [br[][]]
-                <| List.append [text <| coinString]
-                <| List.append [br[][],br[][]]
-                <| List.append (changeButton model.finishCheck)
-                <| List.append [br[][],br[][]]
-                <| List.append betText
-                <| List.append [br[][]]
-            betButton
-            
-        else
-            div[]
-            [ text "Game Over !!!"
-            , br[][]
-            , button[onClick <| Continue][text "Click to continue"]
-            ]
 
-viewCard : Card -> Html Msg
+view : Model -> Html Msg
+view model =
+    let
+        waveDeckText =
+            text
+                <| "Wave : " ++ (String.fromInt model.deckWave) ++ " / 3, Deck : "
+                    ++ (String.fromInt <| List.length <| model.deck)
+
+        coinText =
+            text <| "Coin : " ++ (model.money * 100 |> String.fromInt)
+
+        betText = text <| "Bet  : " ++ (model.bet * 100 |> String.fromInt)
+
+        handDiv = model.hand |> List.map viewCard |> div[]
+
+        role = model.hand |> evaluateRole
+        roleText = text <| ("Role : " ++ (role |> roleToString))
+    in
+        case model.phase of
+            BetPhase ->
+                let
+                    logCoin = Basics.floor <| Basics.logBase 10 (Basics.toFloat (model.money - model.bet))
+                    addButton n = button
+                        [ onClick <| Bet <| 10^n ]
+                        [ "+" ++ (10^n |> String.fromInt) ++ "00" |> text ]
+                    betButtons =
+                        (List.range 0 logCoin |> List.map addButton)
+                            ++ [ button[ onClick <| Bet <| (model.money - model.bet) ][ text  "Bet All" ] ]
+
+                    betAndDraw =
+                        button
+                            [ onClick <| Decide ]
+                            [ text "click to bet" ]
+                in
+                    div []
+                        [ waveDeckText, br[][]
+                        , coinText, br[][]
+                        , betText, br[][]
+                        , div[] betButtons
+                        , br[][]
+                        , betAndDraw, br[][]
+                        , br[][]
+                        ]
+
+            SelectPhase select ->
+                let
+                    selectInput n c = input[type_ "checkbox",onClick <| Check n,checked c][]
+                    selectDiv = select |> List.indexedMap selectInput |> div[]
+                    trushButton = button [ onClick <| Trash ] [ text "trash" ]
+                in
+                    div []
+                        [ waveDeckText, br[][]
+                        , coinText, br[][]
+                        , betText, br[][]
+                        , handDiv
+                        , selectDiv
+                        , roleText, br[][]
+                        , trushButton, br[][]
+                        , br[][]
+                        ]
+
+            ResultPhase ->
+                let
+                    odds = role |> toOdds
+                    resultText = text <|
+                        (if role == None then "Lose : " else "Win : ")
+                            ++ (model.bet * 100 |> String.fromInt)
+                            ++ " x " ++ (odds |> String.fromInt)
+                            ++ " = " ++ (model.bet * odds * 100 |> String.fromInt)
+
+                    nextButton = button [ onClick <| Finish ] [ text "click to next"]
+                in
+                    div []
+                        [ waveDeckText, br[][]
+                        , coinText, br[][]
+                        , resultText, br[][]
+                        , handDiv
+                        , roleText, br[][]
+                        , nextButton, br[][]
+                        , br[][]
+                        ]
+
+            GameOver ->
+                div []
+                    [ text "Game Over !!!"
+                    , br[][]
+                    , button[onClick <| Continue][text "Click to continue"]
+                    ]
+
+            InvalidState ->
+                text "!! Error !!"
+
+viewCard : Card  -> Html Msg
 viewCard ( suit, number ) =
-    text <| (suit |> suitToString) ++ (number |> numberToString)
+    div [ class "card" ]
+        [ div [ class "card-inner" ]
+            [ div [ class "card-front" ]
+                [ img [ src "img/cardBack.svg" ][] ]
+            , div [ class "card-back" ]
+                [ img [ src "img/cardFront.svg" ][]
+                , div [
+                    if suit == Spade || suit == Club
+                    then class "suit black"
+                    else class "suit red"
+                    ][ suit |> suitToString |> text ]
+                , div [ class "number" ][ number |> numberToString |> text ]
+                ]
+            ]
+        ]
 
 
 
@@ -325,7 +353,7 @@ cross list1 list2 =
 
 toBag : List a -> List ( a, Int )
 toBag arg =
-    toBagHelper [] arg 
+    toBagHelper [] arg
 
 toBagHelper : List ( a, Int ) ->  List a  -> List ( a, Int )
 toBagHelper  result rest =
@@ -347,7 +375,7 @@ increment a result rest =
             if a == b
             then List.append tl (( a, n+1 ) :: result)
             else increment a (( b, n ) :: result) tl
-       
+
 
 
 main : Program () Model Msg
