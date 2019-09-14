@@ -2,8 +2,10 @@ module Main exposing (main)
 
 import Browser
 import Html exposing (Html, button, div, text, input, br, img)
-import Html.Attributes exposing(type_, checked, class, src)
+import Html.Attributes exposing(type_, checked, class, src, style)
 import Html.Events exposing (onClick)
+import Svg exposing (svg, rect, text_)
+import Svg.Attributes exposing (x, y, width, height, rx, ry, fill, fillOpacity, stroke, textAnchor, fontFamily, fontSize)
 import List.Extra exposing (updateAt,zip)
 import Random
 import Random.List exposing (shuffle)
@@ -243,7 +245,7 @@ view model =
 
         betText = text <| "Bet  : " ++ (model.bet * 100 |> String.fromInt)
 
-        handDiv = model.hand |> List.map viewCard |> div[]
+        handDiv ss = zip model.hand ss |> List.indexedMap viewCard |> div[]
 
         role = model.hand |> evaluateRole
         roleText = text <| ("Role : " ++ (role |> roleToString))
@@ -276,16 +278,13 @@ view model =
 
             SelectPhase select ->
                 let
-                    selectInput n c = input[type_ "checkbox",onClick <| Check n,checked c][]
-                    selectDiv = select |> List.indexedMap selectInput |> div[]
                     trushButton = button [ onClick <| Trash ] [ text "trash" ]
                 in
                     div []
                         [ waveDeckText, br[][]
                         , coinText, br[][]
                         , betText, br[][]
-                        , handDiv
-                        , selectDiv
+                        , handDiv select
                         , roleText, br[][]
                         , trushButton, br[][]
                         , br[][]
@@ -306,7 +305,7 @@ view model =
                         [ waveDeckText, br[][]
                         , coinText, br[][]
                         , resultText, br[][]
-                        , handDiv
+                        , handDiv (List.repeat 5 False)
                         , roleText, br[][]
                         , nextButton, br[][]
                         , br[][]
@@ -322,23 +321,69 @@ view model =
             InvalidState ->
                 text "!! Error !!"
 
-viewCard : Card  -> Html Msg
-viewCard ( suit, number ) =
-    div [ class "card" ]
+viewCard : Int -> ( Card, Bool ) -> Html Msg
+viewCard n ( ( suit, number ), darken ) =
+    div [ class "card" , onClick <| Check n]
         [ div [ class "card-inner" ]
             [ div [ class "card-front" ]
                 [ img [ src "img/cardBack.svg" ][] ]
             , div [ class "card-back" ]
-                [ img [ src "img/cardFront.svg" ][]
-                , div [
-                    if suit == Spade || suit == Club
-                    then class "suit black"
-                    else class "suit red"
-                    ][ suit |> suitToString |> text ]
-                , div [ class "number" ][ number |> numberToString |> text ]
+                [ svg [ width "84", height "119" ]
+                    [ cardFrontImage
+                    , text_
+                        (suitStyle suit)
+                        [ text (suit |> suitToString) ]
+                    , text_
+                        numberStyle
+                        [ text (number |> numberToString) ]
+                    , rect
+                        (overlayStyle darken)
+                        []
+                    ]
                 ]
             ]
         ]
+
+cardFrontImage =
+    rect
+        [ x "0"
+        , y "0"
+        , width "84"
+        , height "119"
+        , rx "8"
+        , ry "8"
+        , fill "white"
+        , stroke "black"
+        ][]
+
+suitStyle suit =
+    [ x "42"
+    , y "90"
+    , fontFamily "Times New Roman"
+    , fontSize "100px"
+    , fill (if suit == Spade || suit == Club then "#bbb" else "#f88")
+    , textAnchor "middle"
+    ]
+
+numberStyle =
+    [ x "42"
+    , y "85"
+    , fontFamily "Times New Roman"
+    , fontSize "70px"
+    , fill "black"
+    , textAnchor "middle"
+    ]
+
+overlayStyle darken =
+    [ x "0"
+    , y "0"
+    , width "84"
+    , height "119"
+    , rx "8"
+    , ry "8"
+    , fill "black"
+    , fillOpacity (if darken then "0.5" else "0.0")
+    ]
 
 
 
