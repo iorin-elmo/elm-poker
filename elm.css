@@ -24,40 +24,6 @@
 	font-family: "Times New Roman";
 }
 
-.card-back img {
-	position: absolute;
-}
-
-.card-back .suit {
-	position: absolute;
-	font-size: 100px;
-	text-align: center;
-	top: 0;
-  bottom: 0;
-  right: 0;
-  left: 0;
-  margin: auto;
-}
-
-.card-back .number {
-	position: absolute;
-	font-size: 70px;
-	text-align: center;
-	top: 0;
-  bottom: 0;
-  right: 0;
-  left: 0;
-  margin: auto;
-}
-
-.red {
-	color: #F88;
-}
-
-.black {
-	color: #BBB;
-}
-
 @keyframes flipAnimation {
 	from { transform: rotateY(  0deg); }
 	to   { transform: rotateY(180deg); }
