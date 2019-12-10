@@ -1,16 +1,21 @@
 module Main exposing (main)
 
 import Browser
+import Browser.Events exposing (onAnimationFrame)
 import Html exposing (Html, button, div, text, input, br, img)
-import Html.Attributes exposing(type_, checked, class, src, style)
+import Html.Attributes exposing(type_, checked, class, src, style, disabled)
 import Html.Events exposing (onClick)
+import Process
+import Task
 import Svg exposing (svg, rect, text_)
 import Svg.Attributes exposing (x, y, width, height, rx, ry, fill, fillOpacity, stroke, textAnchor, fontFamily, fontSize)
 import List.Extra exposing (updateAt,zip)
+import Time exposing (posixToMillis)
 import Dict exposing (Dict)
 import Set exposing (Set)
 import Random
 import Random.List exposing (shuffle)
+import Heap exposing (Heap, smallest, by)
 
 
 -- MODEL --
@@ -84,9 +89,23 @@ type alias Model =
   , money : Int
   , bet : Int
   , deckWave : Int
+  , animationWaiting : Bool
+  , animationQueue : Heap ( Int, AnimationTask ) -- millis, task
+  , cardEffects : CardEffects
   }
 
 type alias Hand = Dict Int Card
+
+type AnimationTask
+  = CardEffectUpdate (CardEffects -> CardEffects)
+  | Resume Model
+
+type alias CardEffects = Dict Int CardEffect -- index, state
+
+type CardEffect
+  = RollOpen
+  | BeatOut
+  | ZoomInClose
 
 numberToString : Int -> String
 numberToString n =
@@ -110,6 +129,9 @@ initialModel =
   , money = 10
   , bet = 1
   , deckWave = 1
+  , animationWaiting = False
+  , animationQueue = Heap.empty (smallest |> by Tuple.first)
+  , cardEffects = Dict.empty
   }
 
 initialDeck : List Card
@@ -128,6 +150,9 @@ type Msg
   | Continue
   | Bet Int
   | Decide
+  | AnimationFire
+  | ReserveAnimation Int AnimationTask
+  | DoNothing
 
 
 update : Msg -> Model -> (Model ,Cmd Msg)
@@ -137,14 +162,22 @@ update msg model =
       ( { model | bet = model.bet + n }
       , Cmd.none
       )
+
     ( BetPhase, Decide ) ->
-      ( { model
-        | phase = SelectPhase
-          <| Set.empty
-        , money = model.money - model.bet
-        }
-      , Cmd.none
-      )
+      let
+        newModel =
+          { model
+          | phase = SelectPhase <| Set.empty
+          , money = model.money - model.bet
+          }
+
+        animationCommand =
+          List.range 0 5
+            |> List.map (\i ->
+              reserveAnimation (i*300) i RollOpen)
+            |> Cmd.batch
+      in
+        ( newModel, animationCommand )
 
     ( SelectPhase select, Check n ) ->
       ( { model
@@ -172,14 +205,23 @@ update msg model =
         newDeck =
           model.deck
             |> List.drop trashCount
-      in
-        ( { model
+
+        newModel =
+          { model
           | phase = ResultPhase
           , hand = refreshHand
           , deck = newDeck
           }
-        , Cmd.none
-        )
+
+        cardEffects =
+          select
+            |> Set.toList
+            |> List.foldl (\i -> Dict.insert i BeatOut) model.cardEffects
+
+        oldModel =
+          { model | cardEffects = cardEffects }
+      in
+        animationWait 500 newModel oldModel
 
     ( ResultPhase, Finish ) ->
       let
@@ -209,6 +251,8 @@ update msg model =
           if model.deckWave == 3
           then refreshDeck
           else Cmd.none
+
+        cardEffects = Dict.empty
       in
         ( { model
           | phase = nextPhase
@@ -217,6 +261,7 @@ update msg model =
           , money = newMoney
           , bet = 1
           , deckWave = model.deckWave + 1
+          , cardEffects = cardEffects
           }
         , refreshIfNeed )
 
@@ -242,9 +287,40 @@ update msg model =
       , Cmd.none
       )
 
+    ( _, AnimationFire ) ->
+      case model.animationQueue |> Heap.pop of
+        Nothing ->
+          ( model, Cmd.none )
+
+        Just ( ( _, task ), tl) ->
+          let
+            newModel =
+              case task of
+                CardEffectUpdate updater ->
+                  { model
+                  | animationQueue = tl
+                  , cardEffects = updater model.cardEffects
+                  }
+
+                Resume reserved ->
+                  reserved
+          in
+            ( newModel, Cmd.none )
+
+    ( _, ReserveAnimation millis animation ) ->
+      let
+        newModel =
+          { model | animationQueue =
+            model.animationQueue
+              |> Heap.push ( millis, animation )}
+      in
+        ( newModel, Cmd.none )
+
+    ( _, DoNothing ) ->
+      ( model, Cmd.none )
+
     _ ->
       ( { model | phase = InvalidState }, Cmd.none )
-
 
 evaluateRole : Hand -> Role
 evaluateRole hand_ =
@@ -274,8 +350,8 @@ evaluateRole hand_ =
         |> (==) 1
 
     isStraight =
-      difference == [13,12,11,10,9]
-      || difference == [13,12,11,10,1] -- Ace high
+      difference == [13,12,11,10,9] ||
+      difference == [13,12,11,10,1] -- Ace high
 
     aceHigh = difference == [13,12,11,10,1]
 
@@ -307,6 +383,33 @@ evaluateRole hand_ =
       [2,3]   -> FullHouse
       _     -> None
 
+reserveTask: Int -> AnimationTask -> Cmd Msg
+reserveTask delay task =
+  let
+    content posix =
+      ReserveAnimation
+      (Time.posixToMillis posix + delay)
+      task
+  in
+    Task.perform content Time.now
+
+reserveAnimation: Int -> Int -> CardEffect -> Cmd Msg
+reserveAnimation delay index state =
+  reserveTask delay <| CardEffectUpdate <| createAnimation index state
+
+createAnimation : Int -> CardEffect -> CardEffects -> CardEffects
+createAnimation =
+  Dict.insert
+
+animationWait : Int -> Model -> Model -> ( Model, Cmd Msg )
+animationWait waitTime nextModel currentModel =
+  let
+    cmd =
+      reserveTask waitTime
+        <| Resume nextModel
+  in
+    ( { currentModel | animationWaiting = True }, cmd )
+
 
 
 -- VIEW --
@@ -328,7 +431,11 @@ view model =
       model.hand
         |> Dict.toList
         |> List.map (\(i, c) ->
-            viewCard i ( ss |> Set.member i) (Just c))
+            viewCard
+            i
+            (ss |> Set.member i)
+            (model.cardEffects |> Dict.get i)
+            (Just c))
         |> div[]
 
     role = model.hand |> evaluateRole
@@ -362,7 +469,12 @@ view model =
 
       SelectPhase select ->
         let
-          trushButton = button [ onClick <| Trash ] [ text "trash" ]
+          trushButton =
+            button
+            [ onClick <| Trash
+            , disabled <| model.animationWaiting
+            ]
+            [ text "trash" ]
         in
           div []
             [ waveDeckText, br[][]
@@ -405,32 +517,55 @@ view model =
       InvalidState ->
         text "!! Error !!"
 
-viewCard : Int -> Bool -> Maybe Card -> Html Msg
-viewCard n darken maybeCard =
-  div [ class "card" ,width "84", height "119", onClick <| Check n]
-    <| case maybeCard of
-      Nothing ->
-        []
-      Just ( suit, number ) ->
-        [ div [ class "card-inner" ]
-          [ div [ class "card-front" ]
-            [ img [ src "img/cardBack.svg" ][] ]
-          , div [ class "card-back" ]
-            [ svg [ width "84", height "119" ]
-              [ cardFrontImage
-              , text_
-                (suitStyle suit)
-                [ text (suit |> suitToString) ]
-              , text_
-                numberStyle
-                [ text (number |> numberToString) ]
-              , rect
-                (overlayStyle darken)
-                []
+viewCard : Int -> Bool -> Maybe CardEffect -> Maybe Card -> Html Msg
+viewCard n darken maybeState maybeCard =
+  let
+    atrrList =
+      maybeState
+        |> Maybe.map (cardEffectToClassName >> class >> List.singleton)
+        |> Maybe.withDefault []
+
+    content =
+      case maybeCard of
+        Nothing ->
+          []
+        Just ( suit, number ) ->
+          [ div atrrList
+            [ div [ class "card-front" ]
+              [ img [ src "img/cardBack.svg" ][] ]
+            , div [ class "card-back" ]
+              [ svg [ width "84", height "119" ]
+                [ cardFrontImage
+                , text_
+                  (suitStyle suit)
+                  [ text (suit |> suitToString) ]
+                , text_
+                  numberStyle
+                  [ text (number |> numberToString) ]
+                , rect
+                  (overlayStyle darken)
+                  []
+                ]
               ]
             ]
           ]
-        ]
+
+  in
+    div
+    [ class "card" ,width "84", height "119", onClick <| Check n]
+    content
+
+cardEffectToClassName : CardEffect -> String
+cardEffectToClassName state =
+  case state of
+    RollOpen ->
+      "rollOpen inner"
+
+    BeatOut ->
+      "beatOut inner"
+
+    ZoomInClose ->
+      "zoomInClose inner"
 
 cardFrontImage =
   rect
@@ -475,6 +610,23 @@ overlayStyle darken =
 
 
 
+ -- SUBSCRIPTIONS --
+
+subscriptions: Model -> Sub Msg
+subscriptions model =
+  onAnimationFrame (\posix ->
+    case model.animationQueue |> Heap.peek of
+      Nothing ->
+        DoNothing
+
+      Just ( time, _ ) ->
+        if time < posixToMillis posix
+        then AnimationFire
+        else DoNothing
+  )
+
+
+
  -- UTILITY --
 
 cross : List a -> List b -> List ( a, b )
@@ -510,12 +662,11 @@ increment a result rest =
       else increment a (( b, n ) :: result) tl
 
 
-
 main : Program () Model Msg
 main =
   Browser.element
     { init = init
     , view = view
     , update = update
-    , subscriptions = \_ ->Sub.none
+    , subscriptions = subscriptions
     }
