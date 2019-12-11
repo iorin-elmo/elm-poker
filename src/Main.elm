@@ -273,6 +273,9 @@ update msg model =
           }
         , refreshIfNeed )
 
+    ( ResultPhase, Check _ ) ->
+      ( model, Cmd.none )
+
     ( GameOver, Continue ) ->
       ( initialModel
       , refreshDeck
