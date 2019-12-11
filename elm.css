@@ -40,3 +40,16 @@
 	from { transform: scale(1); opacity: 1; }
 	to   { transform: scale(2); opacity: 0; }
 }
+
+.suit {
+	font-family: "Times New Roman";
+	font-size: 100px;
+	text-anchor: middle;
+}
+
+.number {
+	font-family: "Times New Roman";
+	font-size: 70px;
+	fill: black;
+	text-anchor: middle;
+}

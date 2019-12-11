@@ -8,7 +8,7 @@ import Html.Events exposing (onClick)
 import Process
 import Task
 import Svg exposing (svg, rect, text_)
-import Svg.Attributes exposing (x, y, width, height, rx, ry, fill, fillOpacity, stroke, textAnchor, fontFamily, fontSize)
+import Svg.Attributes as SvgAttr exposing (x, y, width, height, rx, ry, fill, fillOpacity, stroke, textAnchor, fontFamily, fontSize)
 import List.Extra exposing (updateAt,zip)
 import Time exposing (posixToMillis)
 import Dict exposing (Dict)
@@ -32,7 +32,15 @@ suitToString suit =
     Spade   -> "♠︎"
     Heart   -> "♥"
     Diamond -> "♦"
-    Club  -> "♣︎"
+    Club    -> "♣︎"
+
+suitToColor : Suit -> String
+suitToColor suit =
+  case suit of
+    Spade   -> "#bbb"
+    Heart   -> "#f88"
+    Diamond -> "#f88"
+    Club    -> "#bbb"
 
 type Role
   = RoyalFlush
@@ -537,10 +545,17 @@ viewCard n darken maybeState maybeCard =
               [ svg [ width "84", height "119" ]
                 [ cardFrontImage
                 , text_
-                  (suitStyle suit)
+                  [ x "42"
+                  , y "90"
+                  , SvgAttr.fill (suit |> suitToColor)
+                  , SvgAttr.class "suit"
+                  ]
                   [ text (suit |> suitToString) ]
                 , text_
-                  numberStyle
+                  [ x "42"
+                  , y "85"
+                  , SvgAttr.class "number"
+                  ]
                   [ text (number |> numberToString) ]
                 , rect
                   (overlayStyle darken)
@@ -569,33 +584,16 @@ cardEffectToClassName state =
 
 cardFrontImage =
   rect
-    [ x "0"
-    , y "0"
-    , width "84"
-    , height "119"
-    , rx "8"
-    , ry "8"
-    , fill "white"
-    , stroke "black"
-    ][]
-
-suitStyle suit =
-  [ x "42"
-  , y "90"
-  , fontFamily "Times New Roman"
-  , fontSize "100px"
-  , fill (if suit == Spade || suit == Club then "#bbb" else "#f88")
-  , textAnchor "middle"
+  [ x "0"
+  , y "0"
+  , width "84"
+  , height "119"
+  , rx "8"
+  , ry "8"
+  , fill "white"
+  , stroke "black"
   ]
-
-numberStyle =
-  [ x "42"
-  , y "85"
-  , fontFamily "Times New Roman"
-  , fontSize "70px"
-  , fill "black"
-  , textAnchor "middle"
-  ]
+  []
 
 overlayStyle darken =
   [ x "0"
