@@ -1,4 +1,4 @@
-# iorin-elmo
+# Elm Poker
 Elm inplementation of poker game created by Iori Kodama and Yuya Aizawa
 
 ## How to make
